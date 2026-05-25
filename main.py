@@ -11,8 +11,9 @@ API_KEY = os.environ.get("API_KEY", "")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def verify_key(key: str = Security(api_key_header)):
+    # Dacă API_KEY nu e setat pe server, acceptăm orice (mod debug)
     if not API_KEY:
-        raise HTTPException(500, "API_KEY nu e configurat")
+        return key
     if key != API_KEY:
         raise HTTPException(403, "Acces refuzat")
     return key
