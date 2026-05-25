@@ -286,3 +286,110 @@ async def adjust_margins(
 def _cleanup(job_dir):
     from starlette.background import BackgroundTask
     return BackgroundTask(shutil.rmtree, job_dir, True)
+
+
+# ---- ROTATE ----
+@app.post("/rotate")
+async def rotate_pdf(
+    file: UploadFile = File(...),
+    degrees: int = Form(90),
+    _key: str = Security(verify_key)
+):
+    """Rotește toate paginile unui PDF cu N grade (90, 180, 270)"""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError:
+        raise HTTPException(500, "pypdf nu e instalat")
+
+    if degrees not in (90, 180, 270):
+        raise HTTPException(400, "Degrees trebuie să fie 90, 180 sau 270")
+
+    job_id = str(uuid.uuid4())
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir()
+
+    try:
+        input_path = job_dir / "input.pdf"
+        with open(input_path, "wb") as f:
+            f.write(await file.read())
+
+        reader = PdfReader(str(input_path))
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            page.rotate(degrees)
+            writer.add_page(page)
+
+        output_path = job_dir / "rotated.pdf"
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        return FileResponse(str(output_path), filename="rotated.pdf",
+                            media_type="application/pdf",
+                            background=_cleanup(job_dir))
+    except Exception as e:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(500, str(e))
+
+
+# ---- WATERMARK ----
+@app.post("/watermark")
+async def add_watermark(
+    file: UploadFile = File(...),
+    text: str = Form("CONFIDENTIAL"),
+    opacity: float = Form(0.3),
+    _key: str = Security(verify_key)
+):
+    """Adaugă watermark text pe toate paginile unui PDF"""
+    try:
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        import io
+    except ImportError as e:
+        raise HTTPException(500, f"Librărie lipsă: {e}")
+
+    job_id = str(uuid.uuid4())
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir()
+
+    try:
+        input_path = job_dir / "input.pdf"
+        with open(input_path, "wb") as f:
+            f.write(await file.read())
+
+        reader = PdfReader(str(input_path))
+
+        # Creează pagina watermark cu reportlab
+        def make_watermark(width, height):
+            packet = io.BytesIO()
+            c = canvas.Canvas(packet, pagesize=(width, height))
+            c.saveState()
+            c.setFont("Helvetica-Bold", max(20, int(width / 15)))
+            c.setFillColorRGB(0.5, 0.5, 0.5, alpha=opacity)
+            c.translate(width / 2, height / 2)
+            c.rotate(45)
+            c.drawCentredString(0, 0, text)
+            c.restoreState()
+            c.save()
+            packet.seek(0)
+            return PdfReader(packet)
+
+        writer = PdfWriter()
+        for page in reader.pages:
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
+            wm_reader = make_watermark(w, h)
+            page.merge_page(wm_reader.pages[0])
+            writer.add_page(page)
+
+        output_path = job_dir / "watermarked.pdf"
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        return FileResponse(str(output_path), filename="watermarked.pdf",
+                            media_type="application/pdf",
+                            background=_cleanup(job_dir))
+    except Exception as e:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(500, str(e))
