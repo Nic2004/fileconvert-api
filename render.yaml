@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: fileconvert-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter        # 7$/luna - online 24/7
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8000
