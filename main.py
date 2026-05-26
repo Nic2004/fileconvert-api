@@ -393,3 +393,4 @@ async def add_watermark(
     except Exception as e:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(500, str(e))
+ 
